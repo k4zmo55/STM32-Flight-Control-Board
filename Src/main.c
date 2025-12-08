@@ -48,7 +48,7 @@ int main(void)
     // PLL yapılandırması
     OscInit.PLL.PLLState = RCC_PLL_ON;
     OscInit.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    OscInit.PLL.PLLM = 4;   // Örn: 8MHz / 8 = 1MHz VCO girişi
+    OscInit.PLL.PLLM = 8;   // Örn: 8MHz / 8 = 1MHz VCO girişi
     OscInit.PLL.PLLN = 336; // Örn: 1MHz * 336 = 336MHz VCO çıkışı
     OscInit.PLL.PLLP = 2;   // Örn: 336MHz / 2 = 168MHz SYSCLK
     OscInit.PLL.PLLQ = 7;   // USB, SDIO, RNG için 336 MHz / 7 = 48MHz

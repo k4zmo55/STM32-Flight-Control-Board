@@ -302,3 +302,138 @@ uint32_t RCC_ClockConfig(RCC_ClkInitTypeDef *RCC_ClkInitStruct, uint32_t FlashLa
     return 0;
 }
 
+/**
+ * @brief  STM32F4xx için PLL parametrelerini otomatik hesaplar
+ * 
+ * @details Bu fonksiyon, istenen SYSCLK ve USB/SDIO frekanslarına göre
+ *          PLL'in PLLM, PLLN, PLLP ve PLLQ değerlerini hesaplar.
+ *          
+ *          PLL Yapısı:
+ *          ┌─────────────────────────────────────────────────┐
+ *          │  HSE/HSI ──> [÷M] ──> [×N] ──> [÷P] ──> SYSCLK  │
+ *          │                  VCO_IN   VCO_OUT               │
+ *          │                         └──> [÷Q] ──> USB/SDIO  │
+ *          └─────────────────────────────────────────────────┘
+ * 
+ * @details Çalışma Mantığı:
+ *          1. PLLP Bulma: Hedef SYSCLK'den geriye doğru VCO çıkış frekansını hesaplar.
+ *             VCO_OUT = SYSCLK × P (P değerleri: 2, 4, 6, 8 denenir)
+ *             VCO_OUT limitleri: 100-432 MHz arasında olmalı
+ * 
+ *          2. PLLM Bulma: HSE/HSI'yi bölerek VCO giriş frekansını ayarlar.
+ *             VCO_IN = HSE/HSI ÷ M
+ *             VCO_IN limitleri: 1-2 MHz arasında olmalı
+ * 
+ *          3. PLLN Bulma: VCO'nun çarpma faktörünü hesaplar.
+ *             VCO_OUT = VCO_IN × N
+ *             N = VCO_OUT ÷ VCO_IN (tam sayı olmalı)
+ * 
+ *          4. PLLQ Bulma: USB/SDIO için bölme faktörünü hesaplar.
+ *             USB_CLK = VCO_OUT ÷ Q
+ *             Q limitleri: 2-15 arasında olmalı, hedef 48 MHz
+ * 
+ * @param  OscInit: RCC osilatör yapılandırma yapısının pointer'ı
+ *         - OscillatorType: HSE veya HSI seçimi yapılmış olmalı
+ *         - PLL.PLLM, PLLN, PLLP, PLLQ: Fonksiyon tarafından doldurulur
+ * 
+ * @param  hedef_sysclk_mhz: İstenen sistem saat frekansı (MHz cinsinden)
+ *         Örnek: 168 (168 MHz için)
+ *         Tipik değerler: 84, 100, 120, 168, 180 MHz
+ * 
+ * @param  hedef_q_mhz: İstenen USB/SDIO/RNG saat frekansı (MHz cinsinden)
+ *         Örnek: 48 (USB için standart 48 MHz)
+ *         Not: USB çalışması için tam olarak 48 MHz gereklidir
+ * 
+ * @retval  0: Başarılı - PLL parametreleri hesaplandı
+ *         -1: Hata - İstenen frekanslar PLL limitleri dışında veya 
+ *                    tam sayı bölünemiyor (kesirli sonuç oluşuyor)
+ * 
+ * @note   VCO Limitleri:
+ *         - VCO giriş: 1-2 MHz
+ *         - VCO çıkış: 100-432 MHz
+ * 
+ * @note   PLL Parametre Limitleri:
+ *         - PLLM: 2-63 (Bu kodda: HSE/HSI ÷ 1 MHz)
+ *         - PLLN: 50-432
+ *         - PLLP: 2, 4, 6, 8
+ *         - PLLQ: 2-15
+ * 
+ * @warning Bu fonksiyon çağrılmadan önce OscInit->OscillatorType değeri
+ *          RCC_OSCILLATORTYPE_HSE veya RCC_OSCILLATORTYPE_HSI içermelidir.
+ * 
+ * @example
+ *          RCC_OscInitTypeDef OscInit = {0};
+ *          OscInit.OscillatorType = RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_PLL;
+ *          OscInit.HSEState = 1;
+ *          OscInit.PLL.PLLState = 1;
+ *          OscInit.PLL.PLLSource = 1;
+ *          
+ *          if(RCC_PLL_DegerleriniHesapla(&OscInit, 168, 48) == 0) {
+ *              // PLLM=8, PLLN=336, PLLP=2, PLLQ=7
+ *              // SYSCLK = 168 MHz, USB = 48 MHz
+ *          }
+ */
+int RCC_PLL_DegerleriniHesapla(RCC_OscInitTypeDef *OscInit, uint32_t hedef_sysclk_mhz, uint32_t hedef_q_mhz)
+{
+    // MHz'den Hz'e çeviriyoruz (1 MHz = 1,000,000 Hz)
+    uint64_t hedef_sysclk_hz = (uint64_t)hedef_sysclk_mhz * 1000000;
+    uint64_t hedef_q_hz = (uint64_t)hedef_q_mhz * 1000000;
+    
+    uint32_t p_degerleri[4] = {2, 4, 6, 8};
+    uint64_t vco_ana_cikis = 0;
+    uint64_t vco_giris = 0;
+    
+    // PLLP değerini bul
+    for(int i=0; i < 4; i++)
+    {
+        uint32_t p_deneme = p_degerleri[i];
+        uint64_t vco_cikis = hedef_sysclk_hz * p_deneme;
+        
+        if(vco_cikis >= VCO_OUT_MIN && vco_cikis <= VCO_OUT_MAX)
+        {
+            OscInit->PLL.PLLP = p_deneme;
+            vco_ana_cikis = vco_cikis;
+            break;
+        }
+    }
+    
+    if(vco_ana_cikis == 0)
+    {
+        return -1;
+    }
+    
+    // HSE mi HSI mi kontrol et
+    if((OscInit->OscillatorType & RCC_OSCILLATORTYPE_HSE) == RCC_OSCILLATORTYPE_HSE)
+    {
+        OscInit->PLL.PLLM = HSE / VCO_IN_MIN;
+        vco_giris = HSE / (OscInit->PLL.PLLM);
+    }
+    else if((OscInit->OscillatorType & RCC_OSCILLATORTYPE_HSI) == RCC_OSCILLATORTYPE_HSI)
+    {
+        OscInit->PLL.PLLM = HSI / VCO_IN_MIN;
+        vco_giris = HSI / (OscInit->PLL.PLLM);
+    }
+    else
+    {
+        return -1; // Ne HSE ne de HSI seçilmiş
+    }
+    
+    // PLLN hesapla
+    OscInit->PLL.PLLN = (uint32_t)(vco_ana_cikis / vco_giris);
+    
+    if(vco_ana_cikis % vco_giris != 0)
+    {
+        return -1;
+    }
+    
+    // PLLQ hesapla
+    OscInit->PLL.PLLQ = (uint32_t)(vco_ana_cikis / hedef_q_hz);
+    
+    if(vco_ana_cikis % hedef_q_hz != 0 || OscInit->PLL.PLLQ < 2 || OscInit->PLL.PLLQ > 15)
+    {
+        return -1;
+    }
+    
+    return 0;
+}
+

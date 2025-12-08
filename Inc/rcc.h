@@ -129,10 +129,20 @@ typedef struct
 #define RCC_SYSCLKSOURCE_HSE    0x01U
 #define RCC_SYSCLKSOURCE_PLL    0x02U
 
+/* Some Useful Macros */
+#define HSE 8000000
+#define HSI 16000000
+#define VCO_IN_MIN 1000000
+#define VCO_IN_MAX 2000000
+#define VCO_OUT_MIN 100000000
+#define VCO_OUT_MAX 432000000
+
+
 /* Function Prototypes */
 uint32_t RCC_OscConfig(RCC_OscInitTypeDef *RCC_OscInitStruct);
 uint32_t RCC_ClockConfig(RCC_ClkInitTypeDef *RCC_ClkInitStruct, uint32_t FlashLatency);
 uint32_t RCC_GetSYSClockFreq(void);
+int RCC_PLL_DegerleriniHesapla(RCC_OscInitTypeDef *OscInit, uint32_t hedef_sysclk_mhz, uint32_t hedef_q_mhz);
 
 /* ---------------- OSCILLATOR TYPE CHECK ---------------- */
 #define IS_RCC_OSCILLATORTYPE(TYPE) \
