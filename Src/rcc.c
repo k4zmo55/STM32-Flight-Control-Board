@@ -11,6 +11,93 @@ uint32_t GetTick(void)
 
 #define CLOCK_TIMEOUT 100U
 
+/**
+ * @brief  STM32F4xx osilatörlerini (HSE, HSI, LSE, LSI) ve PLL'i yapılandırır
+ * 
+ * @details Bu fonksiyon, sistem saat kaynaklarını başlatır ve yapılandırır.
+ *          Desteklenen osilatörler:
+ *          - HSE (High Speed External): Harici kristal osilatör (genellikle 8-25 MHz)
+ *          - HSI (High Speed Internal): Dahili RC osilatör (16 MHz)
+ *          - LSE (Low Speed External): Harici 32.768 kHz kristal (RTC için)
+ *          - LSI (Low Speed Internal): Dahili ~32 kHz RC osilatör
+ *          - PLL (Phase Locked Loop): Yüksek frekanslı saat üretimi için
+ * 
+ * @details Çalışma Mantığı:
+ *          Fonksiyon, OscillatorType biti kontrol ederek hangi osilatörlerin
+ *          yapılandırılacağını belirler. Her osilatör için:
+ *          1. İlgili kontrol bitlerini ayarlar (ENABLE/DISABLE/BYPASS)
+ *          2. Osilatörün hazır olmasını bekler (READY flag)
+ *          3. Timeout kontrolü yapar (sonsuz döngü önleme)
+ * 
+ * @details HSE Modları:
+ *          - RCC_HSE_ON: Harici kristal/rezonatör kullanımı
+ *          - RCC_HSE_BYPASS: Harici saat sinyali girişi (kristal yok)
+ *          - RCC_HSE_OFF: HSE devre dışı
+ * 
+ * @details PLL Yapılandırması:
+ *          PLL açılmadan önce tüm parametreler doğrulanır:
+ *          - PLLM: 2-63 (VCO giriş bölücü)
+ *          - PLLN: 50-432 (VCO çarpan)
+ *          - PLLP: 2, 4, 6, 8 (SYSCLK bölücü)
+ *          - PLLQ: 2-15 (USB/SDIO bölücü)
+ *          
+ *          Register yazma sırası:
+ *          1. PLL kaynak seçimi (HSE veya HSI)
+ *          2. PLLM, PLLN, PLLP, PLLQ değerlerini yaz
+ *          3. PLL'i etkinleştir
+ *          4. PLLRDY bayrağını bekle
+ * 
+ * @param  RCC_OscInitStruct: Osilatör yapılandırma yapısının pointer'ı
+ *         Doldurulması gereken alanlar:
+ *         - OscillatorType: Hangi osilatörlerin yapılandırılacağı (bitwise OR)
+ *         - HSEState: HSE durumu (ON/OFF/BYPASS)
+ *         - HSIState: HSI durumu (ON/OFF)
+ *         - HSICalibrationValue: HSI kalibrasyon değeri (0x00-0x1F)
+ *         - LSEState: LSE durumu (ON/OFF/BYPASS)
+ *         - LSIState: LSI durumu (ON/OFF)
+ *         - PLL.PLLState: PLL durumu (ON/OFF/NONE)
+ *         - PLL.PLLSource: PLL kaynak seçimi (HSE/HSI)
+ *         - PLL.PLLM, PLLN, PLLP, PLLQ: PLL parametreleri
+ * 
+ * @retval 0 (SUCCESS): İşlem başarılı
+ *         ERROR: Parametre hatası veya NULL pointer
+ *         HAL_TIMEOUT: Osilatör hazır olmadı (timeout aşıldı)
+ * 
+ * @note   Timeout Mekanizması:
+ *         Her osilatör için GetTick() kullanılarak zaman aşımı kontrolü yapılır.
+ *         CLOCK_TIMEOUT süresi içinde osilatör hazır olmazsa HAL_TIMEOUT döner.
+ * 
+ * @note   Register İşlemleri:
+ *         - RCC->CR: HSE, HSI, PLL kontrol registeri
+ *         - RCC->CSR: LSI kontrol registeri
+ *         - RCC->BDCR: LSE kontrol registeri (Backup Domain)
+ *         - RCC->PLLCFGR: PLL yapılandırma registeri
+ * 
+ * @warning PLL yapılandırması değiştirilirken:
+ *          1. Önce PLL kapatılmalı
+ *          2. Parametreler değiştirilmeli
+ *          3. Tekrar açılmalı
+ *          PLL açıkken parametre değişikliği yapılamaz!
+ * 
+ * @warning HSE/HSI kapatılırken:
+ *          Eğer o an SYSCLK kaynağı olarak kullanılıyorsa kapatılamaz!
+ *          Önce SYSCLK başka kaynağa alınmalı.
+ * 
+ * @example HSE + PLL ile 168 MHz yapılandırma:
+ *          RCC_OscInitTypeDef OscInit = {0};
+ *          OscInit.OscillatorType = RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_PLL;
+ *          OscInit.HSEState = RCC_HSE_ON;
+ *          OscInit.PLL.PLLState = RCC_PLL_ON;
+ *          OscInit.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+ *          OscInit.PLL.PLLM = 8;
+ *          OscInit.PLL.PLLN = 336;
+ *          OscInit.PLL.PLLP = 2;
+ *          OscInit.PLL.PLLQ = 7;
+ *          
+ *          if(RCC_OscConfig(&OscInit) != 0) {
+ *              // Hata işleme
+ *          }
+ */
 uint32_t RCC_OscConfig(RCC_OscInitTypeDef *RCC_OscInitStruct)
 {
     uint32_t tickstart; // Zaman aşımı başlangıç değeri
@@ -236,7 +323,125 @@ uint32_t RCC_OscConfig(RCC_OscInitTypeDef *RCC_OscInitStruct)
     return 0;
 }
 
-
+/**
+ * @brief  STM32F4xx sistem saatlerini (SYSCLK, HCLK, PCLK1, PCLK2) yapılandırır
+ * 
+ * @details Bu fonksiyon, sistem saat ağacını oluşturur ve tüm veri yolu saatlerini ayarlar.
+ *          
+ *          Saat Hiyerarşisi:
+ *          ┌──────────────────────────────────────────────┐
+ *          │  SYSCLK (Sistem Saati - Ana Kaynak)         │
+ *          │     ↓                                        │
+ *          │  HCLK (AHB Bus - CPU, Memory, DMA)          │
+ *          │     ├─→ PCLK1 (APB1 - Düşük Hızlı Çevreler) │
+ *          │     └─→ PCLK2 (APB2 - Yüksek Hızlı Çevreler)│
+ *          └──────────────────────────────────────────────┘
+ * 
+ * @details Yapılandırma Sırası:
+ *          1. Flash Latency Ayarı (CRITICAL!)
+ *             - Yüksek frekanslarda Flash Wait State gereklidir
+ *             - Yanlış latency → sistem çökmesi, veri hatası
+ *          
+ *          2. HCLK (AHB Clock) Ayarı
+ *             - CPU, bellek, DMA saati
+ *             - SYSCLK'den türetilir (bölücü: 1, 2, 4, 8...)
+ *          
+ *          3. SYSCLK Kaynak Seçimi
+ *             - HSI, HSE veya PLL seçilebilir
+ *             - Seçilen kaynak HAZIR (READY) olmalı!
+ *          
+ *          4. PCLK1 (APB1) Ayarı
+ *             - Düşük hızlı çevre birimleri (UART, I2C, SPI1-2)
+ *             - MAX 42 MHz (STM32F4 için)
+ *          
+ *          5. PCLK2 (APB2) Ayarı
+ *             - Yüksek hızlı çevre birimleri (SPI3, USART1, ADC)
+ *             - MAX 84 MHz (STM32F4 için)
+ * 
+ * @details Flash Latency Tablosu (STM32F4 @ 3.3V):
+ *          SYSCLK Aralığı    | Flash Latency
+ *          ------------------|---------------
+ *          0-30 MHz          | 0 WS (1 cycle)
+ *          30-60 MHz         | 1 WS (2 cycles)
+ *          60-90 MHz         | 2 WS (3 cycles)
+ *          90-120 MHz        | 3 WS (4 cycles)
+ *          120-150 MHz       | 4 WS (5 cycles)
+ *          150-168 MHz       | 5 WS (6 cycles)
+ * 
+ * @param  RCC_ClkInitStruct: Saat yapılandırma yapısının pointer'ı
+ *         Doldurulması gereken alanlar:
+ *         - ClockType: Hangi saatlerin yapılandırılacağı (bitwise OR)
+ *                      RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK | 
+ *                      RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2
+ *         - SYSCLKSource: SYSCLK kaynak seçimi (HSI/HSE/PLL)
+ *         - AHBCLKDivider: HCLK bölücü (DIV1, DIV2, DIV4, ..., DIV512)
+ *         - APB1CLKDivider: PCLK1 bölücü (DIV1, DIV2, DIV4, DIV8, DIV16)
+ *         - APB2CLKDivider: PCLK2 bölücü (DIV1, DIV2, DIV4, DIV8, DIV16)
+ * 
+ * @param  FlashLatency: Flash Wait State değeri (0-7)
+ *         SYSCLK frekansına göre seçilmelidir!
+ *         - FLASH_LATENCY_0: 0 WS (0-30 MHz)
+ *         - FLASH_LATENCY_1: 1 WS (30-60 MHz)
+ *         - FLASH_LATENCY_2: 2 WS (60-90 MHz)
+ *         - FLASH_LATENCY_3: 3 WS (90-120 MHz)
+ *         - FLASH_LATENCY_4: 4 WS (120-150 MHz)
+ *         - FLASH_LATENCY_5: 5 WS (150-168 MHz)
+ * 
+ * @retval 0 (SUCCESS): İşlem başarılı
+ *         ERROR: NULL pointer veya seçilen kaynak hazır değil
+ * 
+ * @note   Güvenlik Kontrolleri:
+ *         - SYSCLK kaynağı seçilmeden önce ilgili osilatör/PLL'in
+ *           READY bayrağı kontrol edilir
+ *         - PLL → PLLRDY kontrolü
+ *         - HSE → HSERDY kontrolü
+ *         - HSI → HSIRDY kontrolü
+ * 
+ * @note   Register İşlemleri:
+ *         - FLASH->ACR: Flash Access Control (Latency ayarı)
+ *         - RCC->CFGR: Clock Configuration Register
+ *           * SW[1:0]: SYSCLK kaynak seçimi
+ *           * HPRE[3:0]: AHB prescaler
+ *           * PPRE1[2:0]: APB1 prescaler
+ *           * PPRE2[2:0]: APB2 prescaler
+ * 
+ * @warning KRITIK: Flash Latency Önce Ayarlanmalı!
+ *          Yanlış sıra → sistem çökmesi:
+ *          ✗ YANLIŞ: SYSCLK artır → sonra latency ayarla
+ *          ✓ DOĞRU: Latency ayarla → sonra SYSCLK artır
+ * 
+ * @warning APB Saat Limitleri:
+ *          - PCLK1 MAX 42 MHz (STM32F4 için)
+ *          - PCLK2 MAX 84 MHz (STM32F4 için)
+ *          Bu limitler aşılırsa çevre birimleri çalışmaz!
+ * 
+ * @warning Timer Saatleri:
+ *          - APB prescaler = 1 ise: Timer clock = APBx clock
+ *          - APB prescaler > 1 ise: Timer clock = 2 × APBx clock
+ * 
+ * @example 168 MHz sistem yapılandırması (HSE 8 MHz, PLL):
+ *          // 1. Önce PLL'i yapılandır (RCC_OscConfig ile)
+ *          // 2. Sonra saat ağacını ayarla:
+ *          
+ *          RCC_ClkInitTypeDef ClkInit = {0};
+ *          ClkInit.ClockType = RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
+ *                              RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+ *          ClkInit.SYSCLKSource = RCC_SYSCLKSOURCE_PLL;  // PLL'den al
+ *          ClkInit.AHBCLKDivider = RCC_HCLK_DIV1;        // 168 MHz
+ *          ClkInit.APB1CLKDivider = RCC_HCLK_DIV4;       // 42 MHz (MAX!)
+ *          ClkInit.APB2CLKDivider = RCC_HCLK_DIV2;       // 84 MHz (MAX!)
+ *          
+ *          // Flash Latency: 168 MHz için 5 WS gerekli
+ *          if(RCC_ClockConfig(&ClkInit, FLASH_LATENCY_5) != 0) {
+ *              // Hata işleme
+ *          }
+ *          
+ *          // Sonuç:
+ *          // SYSCLK = 168 MHz (PLL)
+ *          // HCLK   = 168 MHz (CPU, AHB, Memory)
+ *          // PCLK1  = 42 MHz  (APB1 çevreleri)
+ *          // PCLK2  = 84 MHz  (APB2 çevreleri)
+ */
 uint32_t RCC_ClockConfig(RCC_ClkInitTypeDef *RCC_ClkInitStruct, uint32_t FlashLatency)
 {
     if(RCC_ClkInitStruct == NULL)
