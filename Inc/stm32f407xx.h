@@ -10,6 +10,8 @@
 #define APB2PERIPH_BASE       ((uint32_t)0x40010000U)
 #define APB1PERIPH_BASE       ((uint32_t)0x40000000U)
 
+#define NVIC_PRI_BASE_ADDR    ((volatile uint32_t*)0xE000E400U)
+#define NO_PR_BITS_IMPLEMENTED 4
 /*
 
       AHB2 Peripheral base address definations
@@ -211,6 +213,24 @@ typedef struct{
      uint32_t OPTCR;    /*!< Flash option control register, Address offset: 0x14 */
 }FLASH_RegDef;
 
+typedef struct{
+      uint32_t IMR;      /*!< Interrupt mask register,                    Address offset: 0x00 */
+      uint32_t EMR;      /*!< Event mask register,                        Address offset: 0x04 */
+      uint32_t RTSR;     /*!< Rising trigger selection register,          Address offset: 0x08 */
+      uint32_t FTSR;     /*!< Falling trigger selection register,         Address offset: 0x0C */
+      uint32_t SWIER;    /*!< Software interrupt event register,          Address offset: 0x10 */
+      uint32_t PR;       /*!< Pending register,                           Address offset: 0x14 */
+}EXTI_RegDef_t;
+
+typedef struct{
+      uint32_t MEMRMP;       /*!< Memory remap register,                    Address offset: 0x00 */
+      uint32_t PMC;          /*!< Peripheral mode configuration register,   Address offset: 0x04 */
+      uint32_t EXTICR[4];    /*!< External interrupt configuration registers,Address offset: 0x08-0x14 */
+      uint32_t CMPCR;        /*!< Compensation cell control register,       Address offset: 0x20 */
+      uint32_t RESERVED[2];
+      uint32_t CFGR;         /*!< SYSCFG configuration register,            Address offset: 0x2C */
+}SYSCFG_RegDef_t;
+
 /* Peripheral Definations*/
 #define GPIOA               ((GPIOx_RegDef *)GPIOA_BASE)
 #define GPIOB               ((GPIOx_RegDef *)GPIOB_BASE)
@@ -238,6 +258,9 @@ typedef struct{
 #define I2C3                ((I2Cx_RegDef *)I2C3_BASE)
 
 #define FLASH               ((FLASH_RegDef *)FLASH_BASE)
+
+#define EXTI                ((EXTI_RegDef_t *)EXTI_BASE)
+#define SYSCFG              ((SYSCFG_RegDef_t *)SYSCFG_BASE)
 
 /***********************************
 
@@ -614,6 +637,16 @@ typedef struct{
 #define GPIOJ_REG_RESET()    do{ (RCC->AHB1RSTR |= (1 << 9));  (RCC->AHB1RSTR &= ~(1 << 9)); }while(0)
 #define GPIOK_REG_RESET()    do{ (RCC->AHB1RSTR |= (1 << 10)); (RCC->AHB1RSTR &= ~(1 << 10));}while(0)
 
+#define GPIO_BASEADDR_TO_CODE(pGPIOx) ((pGPIOx == GPIOA) ? 0: \
+                                      (pGPIOx == GPIOB) ? 1 : \
+                                      (pGPIOx == GPIOC) ? 2 : \
+                                      (pGPIOx == GPIOD) ? 3 : \
+                                      (pGPIOx == GPIOE) ? 4 : \
+                                      (pGPIOx == GPIOF) ? 5 : \
+                                      (pGPIOx == GPIOG) ? 6 : \
+                                      (pGPIOx == GPIOH) ? 7 : \
+                                      (pGPIOx == GPIOI) ? 8 : 0)
+
 /*SPI related status flags definations*/
 #define SPI_TXE_FLAG    (1 << SPI_SR_TXE)
 #define SPI_RXNE_FLAG   (1 << SPI_SR_RXNE)
@@ -623,6 +656,9 @@ typedef struct{
 
 #define assert_param(expr) ((expr) ? (void)0U : assert_failed((uint8_t *)__FILE__, __LINE__))
 void assert_failed(uint8_t* file, uint32_t line) {while(1);}
+
+
+
 
 /* Some Useful Macros*/
 #define ERROR -1

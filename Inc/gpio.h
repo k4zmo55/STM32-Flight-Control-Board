@@ -48,6 +48,10 @@ typedef struct{
 #define GPIO_MODE_OUTPUT    1
 #define GPIO_MODE_ALTFN     2
 #define GPIO_MODE_ANALOG    3
+#define GPIO_MODE_IT_FT     4   
+#define GPIO_MODE_IT_RT     5
+#define GPIO_MODE_IT_RFT    6
+
 
 /*
     @GPIO_PIN_OUTPUT_TYPES
@@ -105,3 +109,24 @@ void GPIO_ToggleOutputPin(GPIOx_RegDef *pGPIOx, uint8_t PinNumber);
 void GPIO_IRQInterruptConfig(uint8_t IRQNumber, uint8_t EnorDi);
 void GPIO_IRQPriorityConfig(uint8_t IRQNumber, uint32_t IRQPriority);
 void GPIO_IRQHandling(uint8_t PinNumber);
+
+
+/* IRQ Number Defination Macros */
+#define IRQ_NO_EXTI0        6
+#define IRQ_NO_EXTI1        7
+#define IRQ_NO_EXTI2        8
+#define IRQ_NO_EXTI3        9
+#define IRQ_NO_EXTI4        10
+#define IRQ_NO_EXTI9_5      23
+#define IRQ_NO_EXTI15_10    40
+
+/*ARM Cortex Mx Processor NVIC ISERx register address*/
+#define NVIC_ISER0 ((volatile uint32_t*)0xE000E100)
+#define NVIC_ISER1 ((volatile uint32_t*)0xE000E104)
+#define NVIC_ISER2 ((volatile uint32_t*)0xE000E108)
+
+/*ARM Cortex Mx Processor NVIC ICERx register address*/
+#define NVIC_ICER0 ((volatile uint32_t*)0xE000E180)
+#define NVIC_ICER1 ((volatile uint32_t*)0xE000E184)
+#define NVIC_ICER2 ((volatile uint32_t*)0xE000E188)
+
