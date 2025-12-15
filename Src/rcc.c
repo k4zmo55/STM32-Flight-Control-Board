@@ -642,3 +642,161 @@ int RCC_PLL_DegerleriniHesapla(RCC_OscInitTypeDef *OscInit, uint32_t hedef_syscl
     return 0;
 }
 
+/**
+ * @brief  STM32F4xx için Sistem Saat Frekansını (SYSCLK) hesaplar.
+ *
+ * @details Bu fonksiyon, RCC_CFGR register'ındaki SWS (System Clock Switch Status)
+ * bitlerini okuyarak, o an aktif olan sistem saat kaynağını (HSI, HSE veya PLL)
+ * tespit eder. 
+ *
+ * Hesaplama Mantığı:
+ * 1.  **Sistem Saat Kaynağını Bulma (SWS bitleri):**
+ * * 0x0: HSI (Dahili Yüksek Hızlı Osilatör, genellikle 16 MHz)
+ * * 0x1: HSE (Harici Yüksek Hızlı Osilatör)
+ * * 0x2: PLL (Phase-Locked Loop)
+ *
+ * 2.  **PLL Kaynağı İse Frekans Hesaplama:**
+ * Eğer kaynak PLL ise, frekans şu formül ile hesaplanır:
+ * $$SYSCLK = \left( \frac{F_{PLL_{Source}}}{PLLM} \right) \times PLLN \div PLLP$$
+ *
+ * * **$F_{PLL_{Source}}$ (Giriş Frekansı):** RCC_PLLCFGR register'ındaki PLLSRC bitine göre HSI veya HSE seçilir.
+ * * **PLLM (Bölme Faktörü):** PLL giriş frekansını VCO giriş aralığına düşürür (VCO_IN).
+ * * **PLLN (Çarpma Faktörü):** VCO giriş frekansını istenen yüksek frekansa çarpar (VCO_OUT).
+ * * **PLLP (Bölme Faktörü):** VCO çıkış frekansını SYSCLK için gerekli olan değere böler (2, 4, 6, 8).
+ *
+ * @param  pHandle: RCC yapılandırma handle'ı. (Bu kodda kullanılmasa da parametre uyumluluğu için tutulmuştur.)
+ *
+ * @retval uint32_t: Sistem Saat Frekansı (Hz cinsinden).
+ * @note   Bu fonksiyonun doğru sonuç vermesi için HSI ve HSE sabitlerinin
+ * (örneğin, $HSI=16000000$, $HSE=8000000$) doğru tanımlanmış olması gerekir.
+ */
+uint32_t RCC_GetSYSClockFreq(RCC_Handle_t *pHandle)
+{
+    /* Sistem saat hattını hangisinin seçildiği öğreniyoruz. */
+    uint32_t sysclk_source = (RCC->CFGR >> RCC_CFGR_SWS) & 0x3;
+    uint32_t sysclk_freq = 0;
+
+    switch(sysclk_source)
+    {
+        case RCC_SYSCLKSOURCE_HSI:
+            sysclk_freq = HSI;
+            break;
+        case RCC_SYSCLKSOURCE_HSE:
+            sysclk_freq = HSE;
+            break;
+        case RCC_SYSCLKSOURCE_PLL:
+        {
+            uint32_t pllm = (RCC->PLLCFGR >> RCC_PLLCFGR_PLLM) & 0x3FU;
+            uint32_t plln = (RCC->PLLCFGR >> RCC_PLLCFGR_PLLN) & 0x1FFU;
+            /*
+                PLLP değeri registerda 0-3 arasında saklanır,
+                ancak gerçek bölme faktörü 2,4,6,8'dir.
+                Bu yüzden 1 ekleyip 2 ile çarparız.
+                       ----------------
+                       | 00: PLLP = 2 |
+                       | 01: PLLP = 4 |
+                       | 10: PLLP = 6 |
+                       | 11: PLLP = 8 |
+                       ----------------
+            */
+            uint32_t pllp = ((RCC->PLLCFGR >> RCC_PLLCFGR_PLLP) & 0x3U) + 1;
+            pllp *= 2; // PLLP değeri 2,4,6,8 olarak temsil edilir
+
+            uint32_t pll_source = (RCC->PLLCFGR & RCC_PLLCFGR_PLLSRC) >> RCC_PLLCFGR_PLLSRC;
+            uint32_t vco_input_freq = (pll_source == RCC_PLLSOURCE_HSE) ? (HSE / pllm) : (HSI / pllm);
+            uint32_t vco_output_freq = vco_input_freq * plln;
+
+            sysclk_freq = vco_output_freq / pllp;
+            break;
+        }
+        default:
+            sysclk_freq = HSI; // Güvenlik için HSI
+            break;
+    }
+
+    return sysclk_freq;
+}
+
+uint32_t RCC_GetPCLK1Value(RCC_Handle_t *pHandle)
+{
+    uint32_t pclk1_freq = RCC_GetHCLKValue(pHandle);
+
+    uint32_t ppre1 = (RCC->CFGR >> RCC_CFGR_PPRE1) & 0x7;
+    uint32_t apb1_divider = 1;
+
+    if(ppre1 >= 4)
+    {
+        /* Bit shift operasyonu ile 2'nin kuvvetini hesaplıyoruz:
+           ppre1 = 4 -> apb1_divider = 1 << (4 - 3) = 1 << 1 = 2
+           ppre1 = 5 -> apb1_divider = 1 << (5 - 3) = 1 << 2 = 4
+           ppre1 = 6 -> apb1_divider = 1 << (6 - 3) = 1 << 3 = 8
+           ppre1 = 7 -> apb1_divider = 1 << (7 - 3) = 1 << 4 = 16
+        */
+        apb1_divider = 1 << (ppre1 - 3); 
+    }
+
+    /* HCLK'u APB1 prescaler ile bölerek PCLK1 (APB1 bus frekansı) değerini elde ediyoruz */
+    pclk1_freq /= apb1_divider;
+
+    return pclk1_freq;
+}
+
+/**
+ * @brief  STM32F4xx'te APB2 Bus Saat Frekansını (PCLK2) hesaplar.
+ *
+ * @details Bu fonksiyon, önce AHB Bus Saat Frekansını (HCLK) hesaplar ve
+ * ardından RCC->CFGR register'ındaki PPRE2 (APB2 Prescaler) bitlerini
+ * okuyarak APB2 bölme faktörünü hesaplar.
+ * PCLK2 = HCLK / APB2_Bölme_Faktörü formülü ile PCLK2 frekansını döndürür.
+ *
+ * @param  pHandle: RCC yapılandırma handle'ı.
+ *
+ * @retval uint32_t: APB2 Bus Saat Frekansı (Hz cinsinden).
+ */
+uint32_t RCC_GetPCLK2Value(RCC_Handle_t *pHandle)
+{
+    uint32_t pclk2_freq = RCC_GetHCLKValue(pHandle);
+
+    /* APB2 prescaler'ı al */
+    uint32_t ppre2 = (RCC->CFGR >> RCC_CFGR_PPRE2) & 0x7;
+    uint32_t apb2_divider = 1;
+
+    if(ppre2 >= 4)
+    {
+        apb2_divider = 1 << (ppre2 - 3); 
+    }
+
+    pclk2_freq /= apb2_divider;
+
+    return pclk2_freq;
+}
+
+/**
+ * @brief  STM32F4xx'te AHB Bus Saat Frekansını (HCLK) hesaplar.
+ *
+ * @details Bu fonksiyon, önce System Clock frekansını (SYSCLK) alır ve
+ * ardından RCC->CFGR register'ındaki HPRE (AHB Prescaler) bitlerini
+ * okuyarak AHB bölme faktörünü hesaplar.
+ * HCLK = SYSCLK / AHB_Bölme_Faktörü formülü ile HCLK frekansını döndürür.
+ *
+ * @param  pHandle: RCC yapılandırma handle'ı. (Bu kodda kullanılmasa da parametre uyumluluğu için tutulmuştur.)
+ *
+ * @retval uint32_t: AHB Bus Saat Frekansı (Hz cinsinden).
+ */
+uint32_t RCC_GetHCLKValue(RCC_Handle_t *pHandle)
+{
+    uint32_t hclk_freq = RCC_GetSYSClockFreq(pHandle);
+
+    /* AHB prescaler'ı al */
+    uint32_t hpre = (RCC->CFGR >> RCC_CFGR_HPRE) & 0xF;
+    uint32_t ahb_divider = 1;
+
+    if(hpre >= 8) 
+    {
+        ahb_divider = 1 << (hpre - 7); 
+    }
+
+    hclk_freq /= ahb_divider;
+
+    return hclk_freq;
+}

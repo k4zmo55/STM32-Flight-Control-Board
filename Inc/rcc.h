@@ -1,6 +1,6 @@
-#include "../Inc/stm32f407xx.h"
-#include <stdint.h>
 
+#include <stdint.h>
+#include "stm32f407xx.h"
 /* ===============================
    RCC PLL yapılandırma yapısı
    =============================== */
@@ -46,6 +46,12 @@ typedef struct
   uint32_t APB2CLKDivider;  /*!< APB2 Veri Yolu Saatini (PCLK2) Böler. @ref RCC_APB1_APB2_Clock_Divider */
 
 } RCC_ClkInitTypeDef;
+
+typedef struct{
+    RCC_OscInitTypeDef      OscillatorConfig;
+    RCC_ClkInitTypeDef      ClockConfig;
+    RCC_PLLInitTypeDef      PLLConfig;
+}RCC_Handle_t;
 
 /* -------- HSE State --------- */
 #define RCC_HSE_OFF    0x00000000U
@@ -141,8 +147,11 @@ typedef struct
 /* Function Prototypes */
 uint32_t RCC_OscConfig(RCC_OscInitTypeDef *RCC_OscInitStruct);
 uint32_t RCC_ClockConfig(RCC_ClkInitTypeDef *RCC_ClkInitStruct, uint32_t FlashLatency);
-uint32_t RCC_GetSYSClockFreq(void);
+uint32_t RCC_GetSYSClockFreq(RCC_Handle_t *pHandle);
 int RCC_PLL_DegerleriniHesapla(RCC_OscInitTypeDef *OscInit, uint32_t hedef_sysclk_mhz, uint32_t hedef_q_mhz);
+uint32_t RCC_GetPCLK1Value(RCC_Handle_t *pHandle);
+uint32_t RCC_GetPCLK2Value(RCC_Handle_t *pHandle);
+uint32_t RCC_GetHCLKValue(RCC_Handle_t *pHandle);
 
 /* ---------------- OSCILLATOR TYPE CHECK ---------------- */
 #define IS_RCC_OSCILLATORTYPE(TYPE) \

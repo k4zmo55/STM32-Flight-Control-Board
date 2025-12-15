@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+extern uint32_t RCC_GetSYSClockFreq(RCC_Handle_t *pHandle);
+
 void I2C_PeriClockControl(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi)
 {
     if(EnOrDi == ENABLE)
@@ -33,6 +35,8 @@ void I2C_PeriClockControl(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi)
             I2C3_PCLK_DI();
         }
     }
+
+    
 }
 
 static void I2C_GenerateStartCondition(I2Cx_RegDef *pI2Cx)
@@ -73,51 +77,89 @@ void I2C_CloseSendData(I2C_Handle_t *pI2CHandle)
     printf("handle variables reset transmission \n");
 }
 
-
-uint32_t RCC_GetPCLK1Value(void)
+void I2C_Init(I2C_Handle_t *pI2CHandle)
 {
-    uint16_t AHB_PreScaler[9] = {2,4,8,16,32,64,128,256,512};
-    uint8_t APB1_PreScaler[4] = {2,4,8,16};
-    uint32_t psclk1;
-    uint8_t clksrc,temp, ahbp, apb1p;
-    uint32_t SystemClock = 0;
+    I2C_PeriClockControl(pI2CHandle->pI2Cx,ENABLE);
 
-    clksrc = ((RCC->CFGR >> 2) & 0x3); //check the clock source
+    // CR1 register'ındaki PE (Peripheral Enable) bitini temizle 
+    pI2CHandle->pI2Cx->CR1 &= ~(1 << I2C_CR1_PE);
 
-    if(clksrc == 0)
+    //ACK Control 
+    if(pI2CHandle->I2C_Config.AckControl == I2C_ACK_ENABLE)
     {
-        SystemClock = 16000000;  //hsi is selected
+        pI2CHandle->pI2Cx->CR1 |= (1 << I2C_CR1_ACK);
     }
-    else if (clksrc == 1)
+    else
     {
-        SystemClock = 8000000; //hse is selected
-    }
-    else{
-        SystemClock = 0;      //pll is selected
+        pI2CHandle->pI2Cx->CR1 &= ~(1 << I2C_CR1_ACK);
     }
 
-    //get the value of ahb prescaler value
-    temp = ((RCC->CFGR >> 4) & 0xF);
+    uint32_t pclk1 = RCC_GetPCLK1Value(pI2CHandle->pRCCHandle);
 
-    if(temp < 8){
-        ahbp = 1;
-    }
-    else{
-        ahbp = AHB_PreScaler[temp - 8];
-    }
+    uint32_t pclk1_MHz = pclk1 / 1000000U;
 
-    //get the vakue of apb1 prescaler value
-    temp = ((RCC->CFGR >> 10) & 0x7);
+    // FREQ bitlerini temizle ve yaz
+    uint32_t tempreg = pI2CHandle->pI2Cx->CR2;
+    tempreg &= ~(0x3F);  // Bit 5:0'ı temizle
+    tempreg |= (pclk1_MHz & 0x3F);  // FREQ değerini yaz
+    pI2CHandle->pI2Cx->CR2 = tempreg;
 
-    if(temp < 4)
+    //Program the device own address
+    tempreg = 0;
+    tempreg |= (pI2CHandle->I2C_Config.DeviceAddress << 1);
+    tempreg |= (1 << I2C_OAR1_ADDCONF); // 7-bit adresleme modu
+    pI2CHandle->pI2Cx->OAR1 = tempreg;
+    
+    //CCR calculation
+    uint16_t ccr_value = 0;
+    tempreg = 0;
+
+    if(pI2CHandle->I2C_Config.SCLSpeed <= I2C_SCL_SPEED_SM)
     {
-        apb1p = 1;
+        //Standard mode
+        tempreg |= (pI2CHandle->I2C_Config.FMDutyCycle << I2C_CCR_DUTY); // DUTY bitini ayarla
+        ccr_value = (pclk1) / (2 * pI2CHandle->I2C_Config.SCLSpeed);
+        tempreg |= (ccr_value & 0xFFF);
+        pI2CHandle->pI2Cx->CCR = tempreg;
     }
-    else{
-        apb1p = APB1_PreScaler[temp - 4];
+    else
+    {
+        //Fast mode
+        tempreg |= (1 << I2C_CCR_FS); // Set FM bit
+        tempreg |= (pI2CHandle->I2C_Config.FMDutyCycle << I2C_CCR_DUTY); // DUTY bitini ayarla
+
+        if(pI2CHandle->I2C_Config.FMDutyCycle == I2C_FM_DUTY_2)
+        {
+            //Duty cycle 2
+            ccr_value = (pclk1) / (3 * pI2CHandle->I2C_Config.SCLSpeed);
+            tempreg |= (ccr_value & 0xFFF);
+        }
+        else if (pI2CHandle->I2C_Config.FMDutyCycle == I2C_FM_DUTY_16_9)
+        {
+            //Duty cycle 16/9
+            ccr_value = (pclk1) / (25 * pI2CHandle->I2C_Config.SCLSpeed);
+            
+            tempreg |= (1 << I2C_CCR_DUTY); // Set DUTY bit
+        }
+
+        tempreg |= ( ccr_value & 0xFFF);
     }
 
-    psclk1 = ((SystemClock / ahbp) / apb1p );
+    pI2CHandle->pI2Cx->CCR = tempreg;
 
-    return psclk1;
+    	// trise configurations
+	if (pI2CHandle->I2C_Config.SCLSpeed == I2C_SCL_SPEED_SM) {
+		// mode is standard mode
+		tempreg = ( pclk1_MHz / 1000000U ) + 1 ;
+
+	}else {
+		// mode is fast mode
+		tempreg = ((pclk1_MHz * 300) / 1000000000U) + 1 ;
+	}
+
+	pI2CHandle->pI2Cx->TRISE = ( tempreg & 0x3F) ;
+
+    pI2CHandle->pI2Cx->CR1 |= (1 << I2C_CR1_PE); // Enable the I2C peripheral
 }
+
+

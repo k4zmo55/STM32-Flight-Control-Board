@@ -1,4 +1,6 @@
+#include <stdint.h>
 #include "stm32f407xx.h"
+#include "rcc.h"
 
 typedef struct{
     uint32_t SCLSpeed;        /*!< Possible values from @I2C_SCL_SPEED          */
@@ -16,6 +18,7 @@ typedef struct{
     uint8_t *pTxBuffer;
     uint8_t *pRxBuffer;
     uint8_t TxRxState;
+    RCC_Handle_t *pRCCHandle;
 }I2C_Handle_t;
 
 /*
@@ -67,7 +70,6 @@ void I2C_CloseSendData(I2C_Handle_t *pI2CHandle);
 
 void I2C_ManageAcking(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi);
 
-uint32_t RCC_GetPCLK1Value(void);
 
 /* I2C status definition  */
 

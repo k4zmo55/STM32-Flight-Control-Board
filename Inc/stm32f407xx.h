@@ -576,6 +576,7 @@ typedef struct{
 #define I2C_OAR1_ADD0           0
 #define I2C_OAR1_ADD_7_BIT      1
 #define I2C_OAR1_ADD_10_BIT     8
+#define I2C_OAR1_ADDCONF        14
 #define I2C_OAR1_ADDMODE        15
 
 /*I2Cx_OAR2 register bit definations*/
@@ -669,5 +670,6 @@ void assert_failed(uint8_t* file, uint32_t line) {while(1);}
 #define FLAG_SET 1
 #define FLAG_RESET 0
 #define HAL_TIMEOUT 0x03
+
 
 #endif /* STM32F407XX_H */
