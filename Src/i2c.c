@@ -39,6 +39,74 @@ void I2C_PeriClockControl(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi)
     
 }
 
+void I2C_ManageAcking(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi)
+{
+    if(EnOrDi == ENABLE)
+    {
+        //Enable the ACK bit
+        pI2Cx->CR1 |= (1 << I2C_CR1_ACK);
+    }
+    else
+    {
+        //Disable the ACK bit
+        pI2Cx->CR1 &= ~(1 << I2C_CR1_ACK);
+    }
+}
+
+static void I2C_executeAddresPhase(I2Cx_RegDef *pI2Cx, uint8_t SlaveAddr, uint8_t ReadOrWrite)
+{
+    SlaveAddr = SlaveAddr << 1; //7-bit adresi sola kaydır
+
+    if(ReadOrWrite == I2C_WRITE)
+    {
+        //Slave adresinin 0. bitini temizle (Write işlemi için)
+        SlaveAddr &= ~(1 << 0); 
+    }
+    else if (ReadOrWrite == I2C_READ)
+    {
+        //Slave adresinin 0. bitini set et (Read işlemi için)
+        SlaveAddr |= (1 << 0); 
+    }
+
+    //Slave adresini DR registerına yaz
+    pI2Cx->DR = SlaveAddr;
+}
+
+static void Clear_ADDR_Flag(I2C_Handle_t *pI2CHandle)
+{
+    uint32_t dummyread = 0;
+
+    if(pI2CHandle->pI2Cx->SR2 & (1 << I2C_SR2_MSL))
+    {
+        //Master MODE
+        if(pI2CHandle->TxRxState == I2C_BUSY_IN_RX)
+        {
+            if(pI2CHandle->RxLen == 1)
+            {
+                //Disable ACK
+                I2C_ManageAcking(pI2CHandle->pI2Cx, DISABLE);
+
+                dummyread = pI2CHandle->pI2Cx->SR1;
+                dummyread = pI2CHandle->pI2Cx->SR2;
+                (void)dummyread;
+            }
+            else{
+                //Device is in transmitter mode 
+                dummyread = pI2CHandle->pI2Cx->SR1;
+                dummyread = pI2CHandle->pI2Cx->SR2;
+                (void)dummyread;
+            }
+        }
+    }
+    else
+    {
+        //Slave Mode
+        dummyread = pI2CHandle->pI2Cx->SR1;
+        dummyread = pI2CHandle->pI2Cx->SR2;
+        (void)dummyread;
+    }
+}
+
 static void I2C_GenerateStartCondition(I2Cx_RegDef *pI2Cx)
 {
     //Set the START bit in CR1 register
@@ -162,4 +230,101 @@ void I2C_Init(I2C_Handle_t *pI2CHandle)
     pI2CHandle->pI2Cx->CR1 |= (1 << I2C_CR1_PE); // Enable the I2C peripheral
 }
 
+uint8_t I2C_MasterSendData(I2C_Handle_t *pI2CHandle, uint8_t *pTxBuffer, uint32_t Len, uint8_t SlaveAddr, uint8_t Sr)
+{
+    //Generate the START condition
+    I2C_GenerateStartCondition(pI2CHandle->pI2Cx);
+
+    /* SR1 hazır olana kadar bekle*/
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_SB_FLAG)));
+
+    I2C_executeAddresPhase(pI2CHandle->pI2Cx, SlaveAddr, I2C_WRITE);
+
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_ADDR_FLAG)));
+
+    Clear_ADDR_Flag(pI2CHandle);
+
+    while(Len > 0)
+    {
+        while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_TxE_FLAG)));
+
+        //Transferring 1 byte of data to DR register
+        pI2CHandle->pI2Cx->DR = *pTxBuffer;
+
+        pTxBuffer++;
+        Len--;
+    }
+
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_TxE_FLAG)));
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_BTF_FLAG)));
+
+    if(Sr == DISABLE)
+    {
+        //Generate STOP condition
+        I2C_GenerateStopCondition(pI2CHandle->pI2Cx);
+    }
+}
+
+uint8_t I2C_MasterReceiveData(I2C_Handle_t *pI2CHandle, uint8_t *pRxBuffer, uint32_t Len, uint8_t SlaveAddr, uint8_t Sr)
+{
+    //Generate the START condition
+    I2C_GenerateStartCondition(pI2CHandle->pI2Cx);
+
+    /* SR1 hazır olana kadar bekle*/
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_SB_FLAG)));
+
+    I2C_executeAddresPhase(pI2CHandle->pI2Cx, SlaveAddr, I2C_READ);
+
+    while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_ADDR_FLAG)));
+
+    if(Len == 1)
+    {
+        //Disable ACK
+        I2C_ManageAcking(pI2CHandle->pI2Cx, DISABLE);
+
+        Clear_ADDR_Flag(pI2CHandle);
+
+        while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_RxNE_FLAG)));
+
+        if(Sr == DISABLE)
+        {
+            //Generate STOP condition
+            I2C_GenerateStopCondition(pI2CHandle->pI2Cx);
+        }
+
+        //Read data from DR register
+        *pRxBuffer = pI2CHandle->pI2Cx->DR;
+    }
+    if(Len > 1)
+    {
+        //Clear the ADDR flag
+        Clear_ADDR_Flag(pI2CHandle);
+
+        for(uint32_t i = Len; i > 0; i--)
+        {
+            while(!(I2C_GetFlagStatus(pI2CHandle->pI2Cx,I2C_RxNE_FLAG)));
+
+            if(i == 2)
+            {
+                //Disable ACK
+                I2C_ManageAcking(pI2CHandle->pI2Cx, DISABLE);
+
+                if(Sr == DISABLE)
+                {
+                    //Generate STOP condition
+                    I2C_GenerateStopCondition(pI2CHandle->pI2Cx);
+                }
+            }
+
+            //Read data from DR register
+            *pRxBuffer = pI2CHandle->pI2Cx->DR;
+            pRxBuffer++;
+        }
+    }
+    if(pI2CHandle->I2C_Config.AckControl == I2C_ACK_ENABLE)
+    {
+        //Re-Enable ACKing
+        I2C_ManageAcking(pI2CHandle->pI2Cx, ENABLE);
+    }
+}
 

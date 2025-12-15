@@ -77,8 +77,23 @@ void I2C_ManageAcking(I2Cx_RegDef *pI2Cx, uint8_t EnOrDi);
 #define I2C_BUSY_IN_TX 		1
 #define I2C_BUSY_IN_RX 		2
 
+#define I2C_WRITE         0
+#define I2C_READ          1
+
 /* I2C application event complete definition  */
 
 #define I2C_EVENT_TX_CMPLT		0
 #define I2C_EVENT_RX_CMPLT		1
 #define I2C_EVENT_STOP			2
+
+#define I2C_SB_FLAG     (1 << I2C_SR1_SB)
+#define I2C_ADDR_FLAG   (1 << I2C_SR1_ADDR)
+#define I2C_BTF_FLAG    (1 << I2C_SR1_BTF)
+#define I2C_ADD10_FLAG  (1 << I2C_SR1_ADD10)
+#define I2C_STOPF_FLAG  (1 << I2C_SR1_STOPF)
+#define I2C_RxNE_FLAG   (1 << I2C_SR1_RxNE)
+#define I2C_TxE_FLAG    (1 << I2C_SR1_TxE)
+
+#define I2C_MSL_FLAG    (1 << I2C_SR2_MSL)
+#define I2C_BUSY_FLAG   (1 << I2C_SR2_BUSY)
+#define I2C_TRA_FLAG    (1 << I2C_SR2_TRA)
