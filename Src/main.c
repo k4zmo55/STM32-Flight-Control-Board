@@ -86,53 +86,6 @@ int main(void)
     }
 }
 
-void SPI_GPIOInits(void)
-{
-    GPIO_Handle_t SPIPins;
-
-    //1. Configure SCK Pin
-    SPIPins.pGPIOx = GPIOB;
-    SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_13; //SCK
-    SPIPins.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
-    SPIPins.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_HIGH;
-    SPIPins.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
-    SPIPins.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
-    SPIPins.GPIO_PinConfig.GPIO_PinAltFunMode = 5; //AF5
-
-    GPIO_Init(&SPIPins);
-
-    //2. Configure MISO Pin
-    SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_14; //MISO
-    GPIO_Init(&SPIPins);
-
-    //3. Configure MOSI Pin
-    SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_15; //MOSI
-    GPIO_Init(&SPIPins);
-
-    //4. Configure NSS Pin
-    SPIPins.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_12; //NSS
-    GPIO_Init(&SPIPins);
-
-}
-
-void SPI_Inits(void)
-{
-    SPI_Handle_t SPI1Handle;
-
-    SPI1Handle.pSPIx = SPI1;
-    SPI1Handle.SPIConfig.SPI_BusConfig = SPI_BUS_CONFIG_FD;
-    SPI1Handle.SPIConfig.SPI_DeviceMode = SPI_DEVICE_MODE_MASTER;
-    SPI1Handle.SPIConfig.SPI_SclkSpeed = SPI_SCLK_SPEED_DIV8; //generates SCLK of 2MHz
-    SPI1Handle.SPIConfig.SPI_DFF = SPI_DFF_8BITS;
-    SPI1Handle.SPIConfig.SPI_CPOL = SPI_CPOL_LOW;
-    SPI1Handle.SPIConfig.SPI_CPHA = SPI_CPHA_FIRST_EDGE;
-    SPI1Handle.SPIConfig.SPI_SSM = SPI_SSM_EN; //Software slave management enabled  
-
-    SPI_Init(&SPI1Handle);
-
-    //Enable the SPI1 peripheral
-    SPI_PeripheralControl(SPI1Handle.pSPIx, ENABLE);
-}
 
 
 void delay(uint32_t count)
