@@ -328,3 +328,95 @@ uint8_t I2C_MasterReceiveData(I2C_Handle_t *pI2CHandle, uint8_t *pRxBuffer, uint
     }
 }
 
+void I2C_IRQInterruptConfig(uint8_t IRQNumber, uint8_t EnOrDi)
+{
+    if(EnOrDi == ENABLE)
+    {
+        if(IRQNumber <= 31)
+        {
+            //ISER0
+            *NVIC_ISER0 |= (1 << IRQNumber);
+        }
+        else if(IRQNumber > 31 && IRQNumber < 64)
+        {
+            //ISER1
+            *NVIC_ISER1 |= (1 << (IRQNumber % 32));
+        }
+        else if(IRQNumber >= 64 && IRQNumber < 96)
+        {
+            //ISER2
+            *NVIC_ISER2 |= (1 << (IRQNumber % 64));
+        }
+    }
+    else
+    {
+        if(IRQNumber <= 31)
+        {
+            //ICER0
+            *NVIC_ICER0 |= (1 << IRQNumber);
+        }
+        else if(IRQNumber > 31 && IRQNumber < 64)
+        {
+            //ICER1
+            *NVIC_ICER1 |= (1 << (IRQNumber % 32));
+        }
+        else if(IRQNumber >= 64 && IRQNumber < 96)
+        {
+            //ICER2
+            *NVIC_ICER2 |= (1 << (IRQNumber % 64));
+        }
+    }
+}
+
+void I2C_IRQPriorityConfig(uint8_t IRQNumber, uint32_t IRQPriority)
+{
+    uint8_t iprx = IRQNumber / 4;
+    uint8_t iprx_section = IRQNumber % 4;
+    uint8_t shift_amount = (8 * iprx_section) + (8 - NO_PR_BITS_IMPLEMENTED);
+
+    *(NVIC_PRI_BASE_ADDR + iprx) |= (IRQPriority << shift_amount);
+}
+
+uint8_t I2C_SendIT(I2C_Handle_t *pI2CHandle, uint8_t *pTxBuffer, uint32_t Len, uint8_t SlaveAddr, uint8_t Sr)
+{
+    uint8_t bussystate = pI2CHandle->TxRxState;
+
+    if((bussystate != I2C_BUSY_IN_TX) && (bussystate != I2C_BUSY_IN_RX))
+    {
+        pI2CHandle->DevAddr = SlaveAddr;
+        pI2CHandle->TxLen = Len;
+        pI2CHandle->TxRxState = I2C_BUSY_IN_TX;
+        pI2CHandle->pTxBuffer = pTxBuffer;
+        pI2CHandle->Sr = Sr;
+
+        I2C_GenerateStartCondition(pI2CHandle->pI2Cx);
+    }
+
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITBUFEN);
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITERREN);
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITEVTEN);
+
+    return bussystate;
+}
+
+uint8_t I2C_ReceiveIT(I2C_Handle_t *pI2CHandle, uint8_t *pRxBuffer, uint32_t Len, uint8_t SlaveAddr, uint8_t Sr)
+{
+    uint8_t bussystate = pI2CHandle->TxRxState;
+
+    if((bussystate != I2C_BUSY_IN_TX) && (bussystate != I2C_BUSY_IN_RX))
+    {
+        pI2CHandle->DevAddr = SlaveAddr;
+        pI2CHandle->RxLen = Len;
+        pI2CHandle->TxRxState = I2C_BUSY_IN_RX;
+        pI2CHandle->pRxBuffer = pRxBuffer;
+        pI2CHandle->Sr = Sr;
+
+        I2C_GenerateStartCondition(pI2CHandle->pI2Cx);
+    }
+
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITBUFEN);
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITERREN);
+    pI2CHandle->pI2Cx->CR2 |= (1 << I2C_CR2_ITEVTEN);
+
+    return bussystate;
+}
